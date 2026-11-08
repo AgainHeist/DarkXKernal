@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - arena/d1751834-darkxkernal
+      - main
 
 permissions:
   contents: write
@@ -44,6 +45,7 @@ jobs:
           test -s obj/local/arm64-v8a/android.system.svc
 
       - name: Publish executable to the build branch
+        if: github.ref_name == 'arena/d1751834-darkxkernal'
         shell: bash
         run: |
           set -euo pipefail
