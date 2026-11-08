@@ -24,7 +24,17 @@ jobs:
           set -euo pipefail
           NDK="$ANDROID_HOME/ndk/24.0.8215888"
           test -x "$NDK/build/ndk-build"
-          "$NDK/build/ndk-build" -C .
+          set +e
+          "$NDK/build/ndk-build" -C . > build.log 2>&1
+          build_status=$?
+          set -e
+          cat build.log
+          if [ "$build_status" -ne 0 ]; then
+            while IFS= read -r line; do
+              echo "::error file=build.log::$line"
+            done < build.log
+            exit "$build_status"
+          fi
           test -s obj/local/arm64-v8a/android.system.svc
 
       - name: Upload executable
