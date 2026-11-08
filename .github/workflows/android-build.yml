@@ -24,6 +24,9 @@ jobs:
           set -euo pipefail
           NDK="$ANDROID_HOME/ndk/24.0.8215888"
           test -x "$NDK/build/ndk-build"
+          # The checked-in dependency files contain Windows paths and CRLFs;
+          # discard those generated files before rebuilding on the Linux runner.
+          rm -rf obj/local/arm64-v8a
           set +e
           "$NDK/build/ndk-build" -C . > build.log 2>&1
           build_status=$?
