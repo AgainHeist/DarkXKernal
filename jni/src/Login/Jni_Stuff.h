@@ -22,6 +22,7 @@
 #include <random>
 #include "oxorany.h"
 #include "StrEnc.h"
+#include "LoginConfig.h"
 #include "external/json.hpp"
 #include "../protect/SymbolHider.hpp"
 #include "../protect/AdvancedProtect.hpp"
@@ -68,47 +69,9 @@ namespace Tools {
         return false;
     }
 
-    inline uint32_t fnv1a(const std::string& s) {
-        uint32_t h = 2166136261u;
-        for (char c : s) {
-            h ^= (uint8_t)c;
-            h *= 16777619u;
-        }
-        return h;
-    }
-
-    inline std::string hmacSha256Hex(const std::string& key, const std::string& data) {
-        unsigned char result[EVP_MAX_MD_SIZE];
-        unsigned int len = 0;
-        HMAC(EVP_sha256(), key.c_str(), (int)key.size(),
-             reinterpret_cast<const unsigned char*>(data.c_str()), data.size(),
-             result, &len);
-        std::stringstream ss;
-        for (unsigned int i = 0; i < len; i++)
-            ss << std::hex << std::setw(2) << std::setfill('0') << (int)result[i];
-        return ss.str();
-    }
-
-    inline bool constantTimeEquals(const std::string& a, const std::string& b) {
-        if (a.size() != b.size()) return false;
-        unsigned char diff = 0;
-        for (size_t i = 0; i < a.size(); i++)
-            diff |= (unsigned char)(a[i] ^ b[i]);
-        return diff == 0;
-    }
-
-    static const uint32_t LOGIN_HOST_HASH = 0x66D22D8D;
-
-    inline std::string extractHost(const std::string& url) {
-        size_t start = 0;
-        if (url.rfind(oxorany("https://"), 0) == 0) start = 8;
-        else if (url.rfind(oxorany("http://"), 0) == 0) start = 7;
-        size_t end = url.find('/', start);
-        return (end == std::string::npos) ? url.substr(start) : url.substr(start, end - start);
-    }
-
     inline bool verifyHost(const std::string& url) {
-        return true; // Verification disabled for new server compatibility
+        return url.rfind(oxorany("https://"), 0) == 0 &&
+               url.find(oxorany("YOUR_DOMAIN")) == std::string::npos;
     }
 
     inline std::string getGameName() {
@@ -120,49 +83,7 @@ namespace Tools {
     }
 
     inline std::string buildLoginUrl() {
-        // obfuscated: https://originalcheats.myvipsite.fun/connect
-        unsigned char m[] = { 0x11, 0x0D, 0x0D, 0x09, 0x0A, 0x43, 0x56, 0x56, 0x16, 0x0B, 0x10, 0x1E, 0x10, 0x17, 0x18, 0x15, 0x1A, 0x11, 0x1C, 0x18, 0x0D, 0x0A, 0x57, 0x14, 0x00, 0x0F, 0x10, 0x09, 0x0A, 0x10, 0x0D, 0x1C, 0x57, 0x1F, 0x0C, 0x17, 0x56, 0x1A, 0x16, 0x17, 0x17, 0x1C, 0x1A, 0x0D };
-        std::string s = "";
-        for(int i = 0; i < sizeof(m); i++) s += (char)(m[i] ^ 0x79);
-        return s;
-    }
-
-    inline std::string getSrvScrt() {
-        // Hidden: TERI_MA_DI_FUDDI
-        unsigned char s[] = { 0x76, 0x67, 0x70, 0x6B, 0x7D, 0x6F, 0x63, 0x7D, 0x66, 0x6B, 0x7D, 0x64, 0x77, 0x66, 0x66, 0x6B };
-        std::string res = "";
-        for(int i = 0; i < sizeof(s); i++) res += (char)(s[i] ^ 0x22);
-        return res;
-    }
-
-    inline std::string getClntScrt() {
-        // Hidden: OG_GAARA_104_CLIENT_SECRET
-        unsigned char s[] = { 0x7C, 0x74, 0x6C, 0x74, 0x72, 0x72, 0x61, 0x72, 0x6C, 0x02, 0x03, 0x07, 0x6C, 0x70, 0x7F, 0x7A, 0x76, 0x7D, 0x67, 0x6C, 0x60, 0x76, 0x70, 0x61, 0x76, 0x67 };
-        std::string res = "";
-        for(int i = 0; i < sizeof(s); i++) res += (char)(s[i] ^ 0x33);
-        return res;
-    }
-
-    inline std::string generateServerSign(const std::string& userKey, const std::string& hwid, const std::string& timestamp) {
-        std::string secret = getSrvScrt();
-        std::string data = userKey + hwid + timestamp + secret;
-        uint32_t hash = 2166136261u;
-        for (char c : data) {
-            hash ^= (uint8_t)c;
-            hash *= 16777619u;
-        }
-        memset((void*)secret.data(), 0, secret.size());
-        char buf[9];
-        snprintf(buf, sizeof(buf), oxorany("%08X"), hash);
-        return std::string(buf);
-    }
-
-    inline std::string generateClientSign(const std::string& userKey, const std::string& hwid, const std::string& ts) {
-        std::string secret = getClntScrt();
-        std::string payload = getGameName() + oxorany("|") + userKey + oxorany("|") + hwid + oxorany("|") + ts;
-        std::string result = hmacSha256Hex(secret, payload);
-        memset((void*)secret.data(), 0, secret.size());
-        return result;
+        return DARKX_LOGIN_SERVER_URL;
     }
 
     inline bool nativeDetectHook() {
@@ -262,14 +183,6 @@ inline std::string Login(const char *user_key) {
     if (!Tools::verifyHost(api_url))
         return oxorany("SECURITY ALERT: Invalid server!");
 
-    std::string timestamp = std::to_string(std::time(nullptr));
-
-    std::string formData = oxorany("game=") + Tools::getGameName() +
-                           oxorany("&user_key=") + std::string(user_key) +
-                           oxorany("&serial=") + UUID +
-                           oxorany("&version=2.0");
-                           // client_sign removed as per new server logic
-
     struct MemoryStruct chunk;
     chunk.memory = (char *)malloc(1);
     chunk.size = 0;
@@ -277,6 +190,18 @@ inline std::string Login(const char *user_key) {
 
     CURL *curl = curl_easy_init();
     if (curl) {
+        auto formEscape = [curl](const std::string& value) {
+            char *escaped = curl_easy_escape(curl, value.c_str(), static_cast<int>(value.size()));
+            if (!escaped) return std::string();
+            std::string result(escaped);
+            curl_free(escaped);
+            return result;
+        };
+        std::string formData = oxorany("game=") + formEscape(Tools::getGameName()) +
+                               oxorany("&user_key=") + formEscape(user_key) +
+                               oxorany("&serial=") + formEscape(UUID) +
+                               oxorany("&version=2.0");
+
         struct curl_slist *headers = NULL;
         headers = curl_slist_append(headers, oxorany("Content-Type: application/x-www-form-urlencoded"));
         headers = curl_slist_append(headers, oxorany("User-Agent: Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Mobile Safari/537.36"));
@@ -285,8 +210,8 @@ inline std::string Login(const char *user_key) {
 
         curl_easy_setopt(curl, CURLOPT_URL, api_url.c_str());
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, formData.c_str());
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
         curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);

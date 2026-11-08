@@ -1,0 +1,5 @@
+__pycache__/
+*.py[cod]
+licenses.sqlite3
+licenses.sqlite3-shm
+licenses.sqlite3-wal
