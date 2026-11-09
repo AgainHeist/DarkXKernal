@@ -212,6 +212,14 @@ bool perform_login(const std::string& key) {
 
 #include <sys/prctl.h>
 
+// ============================================================
+// EXIT BEHAVIOUR CONFIG
+//   1 = ON, 0 = OFF
+// ============================================================
+#define AUTO_EXIT_ON_GAME_CLOSE   0   // game band hone par app band ho jaye
+#define AUTO_EXIT_IF_NO_GAME      0   // game start na ho to timeout par band ho jaye
+#define NO_GAME_TIMEOUT_TICKS     1000 // ~30 sec (sirf AUTO_EXIT_IF_NO_GAME = 1 par asar)
+
 int main(int argc, char* argv[]) {
     // 🔥 STEALTH 1: Change process name in RAM to look like a Kernel Thread
     // Isse anti-cheat ko binary ka sahi naam nahi dikhega
@@ -414,10 +422,19 @@ int main(int argc, char* argv[]) {
             prev = true;
         } else {
             game_not_found_ticks++;
-            // 🔥 INSTANT RAM EXIT 🔥
-            // 1. If game was running (prev==true) and then swiped away -> Exit INSTANTLY (within 2-3 frames)
-            // 2. If game hasn't started yet -> Wait ~30 seconds for user to switch apps
-            if ((prev && game_not_found_ticks > 2) || game_not_found_ticks > 1000) {
+
+            bool should_exit = false;
+
+#if AUTO_EXIT_IF_NO_GAME
+            // Game kabhi start hi nahi hua -> timeout ke baad band
+            if (!prev && game_not_found_ticks > NO_GAME_TIMEOUT_TICKS) should_exit = true;
+#endif
+#if AUTO_EXIT_ON_GAME_CLOSE
+            // Game chal raha tha aur band ho gaya -> turant band
+            if (prev && game_not_found_ticks > 2) should_exit = true;
+#endif
+
+            if (should_exit) {
                 shutdown();
                 exit(0);
             }
@@ -443,7 +460,7 @@ int main(int argc, char* argv[]) {
             if (dt <= 0.f || dt > 0.1f) dt = 0.016f;
 
             // 🔥 ALWAYS SHOW MENU (For testing & Reliability)
-            // Even if game is not running, the menu will stay at 0.4 alpha
+            // Even if game is not running, the menu will stay at 0.6 alpha
             // When game starts, it will become 1.0 (Solid)
             float target = run ? 1.0f : 0.6f;
             float spd = 4.f;
