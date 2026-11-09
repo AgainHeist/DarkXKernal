@@ -10,6 +10,12 @@ on:
 permissions:
   contents: write
 
+# Builds of the same branch run one after another, so two runs never replace
+# that branch's release at the same time.
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -45,31 +51,64 @@ jobs:
           test -s obj/local/arm64-v8a/android.system.svc
 
       # The runner is wiped as soon as the job ends, so the built file is lost
-      # unless it is uploaded. This runs on every branch (main included) and
-      # uploads the raw executable (no zip) to the run's "Artifacts" section.
-      - name: Upload executable
-        id: upload
-        uses: actions/upload-artifact@v7
-        with:
-          path: libs/arm64-v8a/android.system.svc
-          archive: false
-          if-no-files-found: error
-          # Keep storage use low on this private repo; only recent builds matter.
-          retention-days: 7
-
-      - name: Show download link
+      # unless it is published. Workflow artifacts are not used because the
+      # account's Actions artifact storage quota is full; release assets do not
+      # count against that quota. Every build replaces one release per branch:
+      #   main         -> release/tag "build-main", marked Latest, so this link
+      #                   always serves the newest main build:
+      #                   /releases/latest/download/android.system.svc
+      #   other branch -> release/tag "build-<branch>", marked pre-release
+      - name: Publish executable as a GitHub Release
         shell: bash
         env:
-          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
+          set -euo pipefail
           f=libs/arm64-v8a/android.system.svc
+          test -s "$f"
+          tag="build-${GITHUB_REF_NAME//\//-}"
+          if [ "$GITHUB_REF_NAME" = "main" ]; then
+            flags=(--latest)
+          else
+            flags=(--prerelease --latest=false)
+          fi
+          repo_url="$GITHUB_SERVER_URL/$GH_REPO"
+          run_url="$repo_url/actions/runs/$GITHUB_RUN_ID"
+          download_url="$repo_url/releases/download/$tag/android.system.svc"
+
+          {
+            echo "Built by GitHub Actions from \`$GITHUB_REF_NAME\` @ \`${GITHUB_SHA::7}\`: $(git log -1 --format=%s)"
+            echo
+            echo "- File: \`android.system.svc\` (arm64-v8a)"
+            echo "- Size: $(stat -c%s "$f") bytes"
+            echo "- SHA-256: \`$(sha256sum "$f" | cut -d' ' -f1)\`"
+            echo "- Build log: $run_url"
+            echo
+            echo "Downloaded files lose the executable bit: run \`chmod +x android.system.svc\` on the device before starting it."
+            echo "This release is replaced automatically by the next build of \`$GITHUB_REF_NAME\`."
+          } > "$RUNNER_TEMP/release-notes.md"
+
+          # Drop the previous build of this branch (release and tag), then
+          # recreate both on the commit that was just built. Retried because
+          # a just-deleted tag can take a moment to disappear on GitHub.
+          publish() {
+            gh release delete "$tag" --cleanup-tag --yes > /dev/null 2>&1 || true
+            gh api -X DELETE "repos/$GH_REPO/git/refs/tags/$tag" > /dev/null 2>&1 || true
+            gh release create "$tag" "$f" --target "$GITHUB_SHA" \
+              --title "Build: $GITHUB_REF_NAME @ ${GITHUB_SHA::7}" \
+              --notes-file "$RUNNER_TEMP/release-notes.md" "${flags[@]}"
+          }
+          publish || { sleep 5; publish; } || { sleep 15; publish; }
+
           {
             echo "## Build output: \`android.system.svc\` (arm64-v8a)"
             echo
-            echo "- **Download:** [android.system.svc]($ARTIFACT_URL) (also under **Artifacts** at the bottom of this page, kept for 7 days)"
-            echo "- Built from: \`${GITHUB_REF_NAME}\` @ \`${GITHUB_SHA::7}\`"
-            echo "- Size: $(stat -c%s "$f") bytes"
-            echo "- SHA-256: \`$(sha256sum "$f" | cut -d' ' -f1)\`"
+            echo "- **Download:** $download_url"
+            echo "- Release page: $repo_url/releases/tag/$tag"
+            if [ "$GITHUB_REF_NAME" = "main" ]; then
+              echo "- Permanent link to the newest main build: $repo_url/releases/latest/download/android.system.svc"
+            fi
             echo
             echo "Downloaded files lose the executable bit: run \`chmod +x android.system.svc\` on the device before starting it."
           } >> "$GITHUB_STEP_SUMMARY"
