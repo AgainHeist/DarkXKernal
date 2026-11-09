@@ -44,6 +44,36 @@ jobs:
           fi
           test -s obj/local/arm64-v8a/android.system.svc
 
+      # The runner is wiped as soon as the job ends, so the built file is lost
+      # unless it is uploaded. This runs on every branch (main included) and
+      # uploads the raw executable (no zip) to the run's "Artifacts" section.
+      - name: Upload executable
+        id: upload
+        uses: actions/upload-artifact@v7
+        with:
+          path: libs/arm64-v8a/android.system.svc
+          archive: false
+          if-no-files-found: error
+          # Keep storage use low on this private repo; only recent builds matter.
+          retention-days: 7
+
+      - name: Show download link
+        shell: bash
+        env:
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          f=libs/arm64-v8a/android.system.svc
+          {
+            echo "## Build output: \`android.system.svc\` (arm64-v8a)"
+            echo
+            echo "- **Download:** [android.system.svc]($ARTIFACT_URL) (also under **Artifacts** at the bottom of this page, kept for 7 days)"
+            echo "- Built from: \`${GITHUB_REF_NAME}\` @ \`${GITHUB_SHA::7}\`"
+            echo "- Size: $(stat -c%s "$f") bytes"
+            echo "- SHA-256: \`$(sha256sum "$f" | cut -d' ' -f1)\`"
+            echo
+            echo "Downloaded files lose the executable bit: run \`chmod +x android.system.svc\` on the device before starting it."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Publish executable to the build branch
         if: github.ref_name == 'arena/d1751834-darkxkernal'
         shell: bash
